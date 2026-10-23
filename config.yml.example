@@ -1,0 +1,24 @@
+app:
+  port: ":8080"
+  environment: "development"
+
+postgres:
+  host: "127.0.0.1"
+  port: "5432"
+  username: "postgres"
+  password: "Terserah123"
+  dbname: "user_exam"
+  idleconnect: 10
+  maxconnect: 100
+  lifeconnect: 300
+
+redis:
+  host: "127.0.0.1"
+  port: "6379"
+  db: 0
+  password:
+  username:
+
+logger:
+  level: 6
+  path: "./logs/"
