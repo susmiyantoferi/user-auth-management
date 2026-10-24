@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"user-auth-exam/internal/dto"
 	"user-auth-exam/internal/entity"
 	"user-auth-exam/internal/repository"
@@ -42,6 +43,7 @@ var (
 	ErrCredentialInvalid = errors.New("Invalid email or password")
 	ErrUserInvalidStatus = errors.New("User will be verified or active")
 	ErrInternalServer    = errors.New("Internal server error")
+	ErrEmailExist        = errors.New("Email already exits")
 )
 
 func (s *userServiceImpl) Update(c context.Context, req *dto.UpdateUserRequest) error {
@@ -148,6 +150,10 @@ func (s *userServiceImpl) ChangeEmail(c context.Context, req *dto.UpdateEmailReq
 	}
 
 	if err := s.UserRepo.Update(db, update, user.ID); err != nil {
+		if strings.Contains(err.Error(), "duplicate key value") {
+			s.Log.WithError(err).Error("user: email already exist")
+			return ErrEmailExist
+		}
 		s.Log.WithError(err).Error("user: failed change email")
 		return ErrInternalServer
 	}

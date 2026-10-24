@@ -37,7 +37,7 @@ func (a *authControllerImpl) Login(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrCredentialInvalid):
-			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+			c.JSON(http.StatusForbidden, response.ErrorResponse(err.Error()))
 
 		case errors.Is(err, service.ErrValidationFailed):
 			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))

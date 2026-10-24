@@ -58,7 +58,7 @@ func (s *authServiceImpl) Login(c context.Context, req *dto.LoginUserRequest) (*
 		return nil, ErrUserInvalidStatus
 	}
 
-	if !encrypt.CompareBcryptText(user.Password, req.Password) || user.Email != req.Email {
+	if !encrypt.CompareBcryptText(user.Password, req.Password){
 		return nil, ErrCredentialInvalid
 	}
 
@@ -81,9 +81,11 @@ func (s *authServiceImpl) Login(c context.Context, req *dto.LoginUserRequest) (*
 
 	if err := s.Redis.Set(c, "jwt:"+user.ID.String(), accessToken, accessTTL).Err(); err != nil {
 		s.Log.Errorf("failed to save access token to redis: %v", err)
+		return nil, ErrInternalServer
 	}
 	if err := s.Redis.Set(c, "refresh:"+refreshToken, user.ID.String(), refreshTTL).Err(); err != nil {
 		s.Log.Errorf("failed to save refresh token to redis: %v", err)
+		return nil, ErrInternalServer
 	}
 
 	tokenCreated := dto.TokenResponse{

@@ -31,7 +31,7 @@ func main() {
 	userController := controller.NewUserControllerImpl(userService)
 	authController := controller.NewAuthControllerImpl(authService)
 
-	router := route.NewRouter(userController, authController)
+	router := route.NewRouter(userController, authController, &config.Jwt, redis)
 
 	router.Run(config.App.Port)
 }

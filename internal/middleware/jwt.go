@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,7 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func Authentication(cfg *config.JwtConfig, redis *redis.Client) gin.HandlerFunc {
+func Authentication(cfg *config.JwtConfig, rdsClient *redis.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		authHeader := ctx.GetHeader("Authorization")
 
@@ -23,7 +24,7 @@ func Authentication(cfg *config.JwtConfig, redis *redis.Client) gin.HandlerFunc 
 			return
 		}
 
-		tokenPart := strings.Split(authHeader, " ")
+		tokenPart := strings.Fields(authHeader)
 		if len(tokenPart) != 2 || tokenPart[0] != "Bearer" {
 			ctx.JSON(http.StatusUnauthorized, response.ErrorResponse("invalid authorization format"))
 			ctx.Abort()
@@ -47,6 +48,28 @@ func Authentication(cfg *config.JwtConfig, redis *redis.Client) gin.HandlerFunc 
 			return
 		}
 
+		//cek token in rediss
+		key := fmt.Sprintf("jwt:%s", claim.UserID.String())
+
+		redisToken, err := rdsClient.Get(ctx.Request.Context(), key).Result()
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				ctx.JSON(http.StatusUnauthorized, response.ErrorResponse("session expired or logged out"))
+
+				ctx.Abort()
+				return
+			}
+			ctx.JSON(http.StatusInternalServerError, response.ErrorResponse("internal server error"))
+
+			ctx.Abort()
+			return
+		}
+
+		if redisToken != tokenStr {
+			ctx.JSON(http.StatusUnauthorized, response.ErrorResponse("invalid session"))
+			ctx.Abort()
+			return
+		}
 		ctx.Set("user", claim)
 		ctx.Next()
 	}

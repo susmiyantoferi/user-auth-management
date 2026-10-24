@@ -1,13 +1,16 @@
 package route
 
 import (
+	"user-auth-exam/infrastructure/config"
 	"user-auth-exam/internal/controller"
+	"user-auth-exam/internal/middleware"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
-func NewRouter(users controller.UserController, authentication controller.AuthController) *gin.Engine {
+func NewRouter(users controller.UserController, authentication controller.AuthController, cfg *config.JwtConfig, rdsClient *redis.Client) *gin.Engine {
 	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
@@ -26,11 +29,13 @@ func NewRouter(users controller.UserController, authentication controller.AuthCo
 		}
 
 		usr := v1.Group("/users")
+		usr.Use(middleware.Authentication(cfg, rdsClient))
+		usr.Use(middleware.RoleAccessMiddleware("user", "admin"))
 		{
-			usr.PATCH("/:id", users.Update)
-			usr.GET("/:id", users.GetByID)
-			usr.POST("/:id", users.Deactive)
-			usr.POST("/:id/change-email", users.ChangeEmail)
+			usr.PATCH("/me", users.Update)
+			usr.GET("/me", users.GetByID)
+			usr.POST("/me/deactivate", users.Deactive)
+			usr.POST("/me/change-email", users.ChangeEmail)
 
 		}
 	}

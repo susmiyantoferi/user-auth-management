@@ -8,7 +8,6 @@ import (
 	"user-auth-exam/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type UserController interface {
@@ -36,16 +35,17 @@ func (u *userControllerImpl) Update(c *gin.Context) {
 		return
 	}
 
-	userId := c.Param("id")
-	id, err := uuid.Parse(userId)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid ID"))
+	//get user from claim token
+	claim, ok := c.Get("user")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, response.ErrorResponse("unauthorized"))
 		return
 	}
 
-	req.ID = id
+	user := claim.(*dto.TokenClaim)
+	req.ID = user.UserID
 
-	err = u.UserService.Update(c.Request.Context(), &req)
+	err := u.UserService.Update(c.Request.Context(), &req)
 	if err != nil {
 		if errors.Is(err, service.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, response.ErrorResponse(err.Error()))
@@ -61,14 +61,15 @@ func (u *userControllerImpl) Update(c *gin.Context) {
 }
 
 func (u *userControllerImpl) Deactive(c *gin.Context) {
-	userId := c.Param("id")
-	id, err := uuid.Parse(userId)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid ID"))
+	claim, ok := c.Get("user")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, response.ErrorResponse("unauthorized"))
 		return
 	}
 
-	if err := u.UserService.Deactivate(c.Request.Context(), id); err != nil {
+	user := claim.(*dto.TokenClaim)
+
+	if err := u.UserService.Deactivate(c.Request.Context(), user.UserID); err != nil {
 		if errors.Is(err, service.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, response.ErrorResponse(err.Error()))
 			return
@@ -83,14 +84,15 @@ func (u *userControllerImpl) Deactive(c *gin.Context) {
 }
 
 func (u *userControllerImpl) GetByID(c *gin.Context) {
-	userId := c.Param("id")
-	id, err := uuid.Parse(userId)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid ID"))
+	claim, ok := c.Get("user")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, response.ErrorResponse("unauthorized"))
 		return
 	}
 
-	resp, err := u.UserService.GetByID(c.Request.Context(), id)
+	user := claim.(*dto.TokenClaim)
+
+	resp, err := u.UserService.GetByID(c.Request.Context(), user.UserID)
 	if err != nil {
 		if errors.Is(err, service.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, response.ErrorResponse(err.Error()))
@@ -105,15 +107,16 @@ func (u *userControllerImpl) GetByID(c *gin.Context) {
 }
 
 func (u *userControllerImpl) ChangeEmail(c *gin.Context) {
-	userId := c.Param("id")
-	id, err := uuid.Parse(userId)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid ID"))
+	claim, ok := c.Get("user")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, response.ErrorResponse("unauthorized"))
 		return
 	}
 
+	user := claim.(*dto.TokenClaim)
+
 	var body dto.UpdateEmailRequest
-	body.ID = id
+	body.ID = user.UserID
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid request body"))
 		return
@@ -121,8 +124,8 @@ func (u *userControllerImpl) ChangeEmail(c *gin.Context) {
 
 	if err := u.UserService.ChangeEmail(c.Request.Context(), &body); err != nil {
 		switch {
-		case errors.Is(err, service.ErrRecordNotFound):
-			c.JSON(http.StatusNotFound, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrEmailExist):
+			c.JSON(http.StatusConflict, response.ErrorResponse(err.Error()))
 
 		case errors.Is(err, service.ErrValidationFailed):
 			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
