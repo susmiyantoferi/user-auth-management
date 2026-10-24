@@ -99,8 +99,10 @@ func (s *userServiceImpl) Deactivate(c context.Context, id uuid.UUID) error {
 		return ErrInternalServer
 	}
 
-	keyJwt := fmt.Sprintf("jwt:%d", user.ID)
-	keyRefresh := fmt.Sprintf("refresh:%d", user.ID)
+	strID := user.ID.String()
+
+	keyJwt := fmt.Sprintf("jwt:%s", strID)
+	keyRefresh := fmt.Sprintf("refresh:%s", strID)
 
 	if user.IsActive {
 		if err := s.RedisClient.Del(c, keyJwt).Err(); err != nil {

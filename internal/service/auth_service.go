@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 	"user-auth-exam/infrastructure/config"
 	"user-auth-exam/internal/dto"
@@ -11,6 +13,7 @@ import (
 	"user-auth-exam/utils/token"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -19,6 +22,7 @@ import (
 type AuthService interface {
 	Login(c context.Context, req *dto.LoginUserRequest) (*dto.TokenResponse, error)
 	Register(c context.Context, req *dto.RegisterUserRequest) error
+	Logout(c context.Context, userID uuid.UUID) error
 }
 
 type authServiceImpl struct {
@@ -58,7 +62,7 @@ func (s *authServiceImpl) Login(c context.Context, req *dto.LoginUserRequest) (*
 		return nil, ErrUserInvalidStatus
 	}
 
-	if !encrypt.CompareBcryptText(user.Password, req.Password){
+	if !encrypt.CompareBcryptText(user.Password, req.Password) {
 		return nil, ErrCredentialInvalid
 	}
 
@@ -122,6 +126,41 @@ func (s *authServiceImpl) Register(c context.Context, req *dto.RegisterUserReque
 
 	if err := s.UserRepo.Create(s.Db.WithContext(c), &user); err != nil {
 		s.Log.WithError(err).Error("Failed to create user")
+		return ErrInternalServer
+	}
+
+	return nil
+}
+
+func (s *authServiceImpl) Logout(c context.Context, userID uuid.UUID) error {
+	if userID == uuid.Nil {
+		s.Log.Infof("logout: userID is nil")
+		return ErrValidationFailed
+	}
+
+	user, err := s.UserRepo.GetByID(s.Db.WithContext(c), userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.Log.WithError(err).Error("logout: user not found")
+			return ErrRecordNotFound
+		}
+
+		s.Log.WithError(err).Error("logout: failed get user by id")
+		return ErrInternalServer
+	}
+
+	strID := user.ID.String()
+
+	keyJwt := fmt.Sprintf("jwt:%s", strID)
+	keyRefresh := fmt.Sprintf("refresh:%s", strID)
+
+	if err := s.Redis.Del(c, keyJwt).Err(); err != nil {
+		s.Log.WithError(err).Error("logout: failed delete jwt token")
+		return ErrInternalServer
+	}
+
+	if err := s.Redis.Del(c, keyRefresh).Err(); err != nil {
+		s.Log.WithError(err).Error("logout: failed delete refresh token")
 		return ErrInternalServer
 	}
 

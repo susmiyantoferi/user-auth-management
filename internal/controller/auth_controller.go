@@ -13,6 +13,7 @@ import (
 type AuthController interface {
 	Login(c *gin.Context)
 	Register(c *gin.Context)
+	Logout(c *gin.Context)
 }
 
 type authControllerImpl struct {
@@ -37,7 +38,7 @@ func (a *authControllerImpl) Login(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrCredentialInvalid):
-			c.JSON(http.StatusForbidden, response.ErrorResponse(err.Error()))
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
 
 		case errors.Is(err, service.ErrValidationFailed):
 			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
@@ -77,4 +78,28 @@ func (a *authControllerImpl) Register(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, response.SuccessResponse(nil))
 
+}
+
+func (a *authControllerImpl) Logout(c *gin.Context) {
+
+	claim, ok := c.Get("user")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, response.ErrorResponse("unauthorized"))
+		return
+	}
+
+	user := claim.(*dto.TokenClaim)
+
+	if err := a.AuthService.Logout(c.Request.Context(), user.UserID); err != nil {
+		switch {
+		case errors.Is(err, service.ErrRecordNotFound):
+			c.JSON(http.StatusNotFound, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrInternalServer):
+			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
+		default:
+			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
+		}
+	}
+
+	c.JSON(http.StatusOK, response.SuccessResponse(nil))
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func NewRouter(users controller.UserController, authentication controller.AuthController, cfg *config.JwtConfig, rdsClient *redis.Client) *gin.Engine {
+func NewRouter(users controller.UserController, authentication controller.AuthController, cfgJwt *config.JwtConfig, rdsClient *redis.Client) *gin.Engine {
 	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
@@ -24,12 +24,19 @@ func NewRouter(users controller.UserController, authentication controller.AuthCo
 	{
 		auth := v1.Group("/auth")
 		{
+			//public route
 			auth.POST("/register", authentication.Register)
 			auth.POST("/login", authentication.Login)
+
+			protected := auth.Group("")
+			protected.Use(middleware.Authentication(cfgJwt, rdsClient))
+			{
+				protected.POST("/logout", authentication.Logout)
+			}
 		}
 
 		usr := v1.Group("/users")
-		usr.Use(middleware.Authentication(cfg, rdsClient))
+		usr.Use(middleware.Authentication(cfgJwt, rdsClient))
 		usr.Use(middleware.RoleAccessMiddleware("user", "admin"))
 		{
 			usr.PATCH("/me", users.Update)
