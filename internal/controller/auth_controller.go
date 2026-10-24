@@ -42,6 +42,9 @@ func (a *authControllerImpl) Login(c *gin.Context) {
 		case errors.Is(err, service.ErrValidationFailed):
 			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
 
+		case errors.Is(err, service.ErrUserInvalidStatus):
+			c.JSON(http.StatusForbidden, response.ErrorResponse(err.Error()))
+
 		default:
 			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
 		}

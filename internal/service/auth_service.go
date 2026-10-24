@@ -83,7 +83,7 @@ func (s *authServiceImpl) Login(c context.Context, req *dto.LoginUserRequest) (*
 		s.Log.Errorf("failed to save access token to redis: %v", err)
 		return nil, ErrInternalServer
 	}
-	if err := s.Redis.Set(c, "refresh:"+refreshToken, user.ID.String(), refreshTTL).Err(); err != nil {
+	if err := s.Redis.Set(c, "refresh:"+user.ID.String(), refreshToken, refreshTTL).Err(); err != nil {
 		s.Log.Errorf("failed to save refresh token to redis: %v", err)
 		return nil, ErrInternalServer
 	}

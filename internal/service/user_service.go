@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"user-auth-exam/internal/dto"
 	"user-auth-exam/internal/entity"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -22,18 +24,20 @@ type UserService interface {
 }
 
 type userServiceImpl struct {
-	UserRepo repository.UserRepository
-	Db       *gorm.DB
-	Validate *validator.Validate
-	Log      *logrus.Logger
+	UserRepo    repository.UserRepository
+	Db          *gorm.DB
+	Validate    *validator.Validate
+	Log         *logrus.Logger
+	RedisClient *redis.Client
 }
 
-func NewUserServiceImpl(userRepo repository.UserRepository, db *gorm.DB, validate *validator.Validate, log *logrus.Logger) UserService {
+func NewUserServiceImpl(userRepo repository.UserRepository, db *gorm.DB, validate *validator.Validate, log *logrus.Logger, redisClient *redis.Client) UserService {
 	return &userServiceImpl{
-		UserRepo: userRepo,
-		Db:       db,
-		Validate: validate,
-		Log:      log,
+		UserRepo:    userRepo,
+		Db:          db,
+		Validate:    validate,
+		Log:         log,
+		RedisClient: redisClient,
 	}
 }
 
@@ -64,6 +68,11 @@ func (s *userServiceImpl) Update(c context.Context, req *dto.UpdateUserRequest) 
 		return ErrInternalServer
 	}
 
+	if !user.IsActive || user.StatusVerification == entity.Pending {
+		s.Log.Infof("user must be active and verified")
+		return ErrUserInvalidStatus
+	}
+
 	u := &entity.User{
 		Name:    req.Name,
 		Address: req.Address,
@@ -88,6 +97,21 @@ func (s *userServiceImpl) Deactivate(c context.Context, id uuid.UUID) error {
 		}
 		s.Log.WithError(err).Error("failed get user by id")
 		return ErrInternalServer
+	}
+
+	keyJwt := fmt.Sprintf("jwt:%d", user.ID)
+	keyRefresh := fmt.Sprintf("refresh:%d", user.ID)
+
+	if user.IsActive {
+		if err := s.RedisClient.Del(c, keyJwt).Err(); err != nil {
+			s.Log.WithError(err).Error("failed delete token redis")
+			return ErrInternalServer
+		}
+
+		if err := s.RedisClient.Del(c, keyRefresh).Err(); err != nil {
+			s.Log.WithError(err).Error("failed delete token refresh redis")
+			return ErrInternalServer
+		}
 	}
 
 	user.IsActive = !user.IsActive
@@ -143,6 +167,11 @@ func (s *userServiceImpl) ChangeEmail(c context.Context, req *dto.UpdateEmailReq
 		}
 		s.Log.WithError(err).Error("user: failed get user")
 		return ErrInternalServer
+	}
+
+	if !user.IsActive || user.StatusVerification == entity.Pending {
+		s.Log.Infof("user must be active and verified")
+		return ErrUserInvalidStatus
 	}
 
 	update := &entity.User{
