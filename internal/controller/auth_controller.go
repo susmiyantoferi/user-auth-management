@@ -14,6 +14,7 @@ type AuthController interface {
 	Login(c *gin.Context)
 	Register(c *gin.Context)
 	Logout(c *gin.Context)
+	Refresh(c *gin.Context)
 }
 
 type authControllerImpl struct {
@@ -102,4 +103,30 @@ func (a *authControllerImpl) Logout(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response.SuccessResponse(nil))
+}
+
+func (a *authControllerImpl) Refresh(c *gin.Context) {
+	var req dto.ResfreshTokenRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid request body"))
+		return
+	}
+
+	resp, err := a.AuthService.Refresh(c.Request.Context(), &req)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrRecordNotFound):
+			c.JSON(http.StatusNotFound, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrValidationFailed):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrTokenInvalid):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		default:
+			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response.SuccessResponse(resp))
 }

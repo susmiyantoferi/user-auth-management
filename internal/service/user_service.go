@@ -48,6 +48,8 @@ var (
 	ErrUserInvalidStatus = errors.New("User will be verified or active")
 	ErrInternalServer    = errors.New("Internal server error")
 	ErrEmailExist        = errors.New("Email already exits")
+	ErrUnauthorized      = errors.New("Unauthorized")
+	ErrTokenInvalid      = errors.New("Token invalid")
 )
 
 func (s *userServiceImpl) Update(c context.Context, req *dto.UpdateUserRequest) error {

@@ -1,8 +1,6 @@
 package token
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -16,13 +14,15 @@ import (
 func GenerateToken(cfg *config.JwtConfig, userId uuid.UUID, email, role string, exp time.Duration) (string, error) {
 	jwtSecret := []byte(cfg.SecretKey)
 	jwtExp := time.Now().Add(exp * time.Hour)
+	now := time.Now()
 
 	tokenCLaim := &dto.TokenClaim{
-		UserID: userId,
-		Email:  email,
-		Role:   role,
+		UserID:    userId,
+		Role:      role,
+		TokenType: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(jwtExp),
+			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
 
@@ -35,24 +35,48 @@ func GenerateToken(cfg *config.JwtConfig, userId uuid.UUID, email, role string, 
 	return tokenStr, nil
 }
 
-func GenerateRefreshToken(userID uuid.UUID, cfg *config.JwtConfig) (string, time.Time, error) {
-	expiry := time.Now().Add(time.Duration(cfg.RefreshExpiredTime) * time.Hour)
-	rawToken := fmt.Sprintf("%s:%d:%s", userID.String(), expiry.Unix(), time.Now().String())
+func GenerateRefreshToken(userID uuid.UUID, cfg *config.JwtConfig) (string, error) {
+	now := time.Now()
+	jwtSecret := []byte(cfg.SecretKey)
+	expiry := now.Add(
+		time.Duration(cfg.RefreshExpiredTime) * time.Hour,
+	)
 
-	h := sha256.New()
-	h.Write([]byte(rawToken))
-	hash := hex.EncodeToString(h.Sum(nil))
+	claims := &dto.TokenClaim{
+		UserID:    userID,
+		TokenType: "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expiry),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+	}
 
-	return hash, expiry, nil
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, err := token.SignedString(jwtSecret)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %w", err)
+	}
+
+	return tokenStr, nil
+
 }
 
-func ClaimTokenRefresh(tokenUser string, cfg *config.JwtConfig) (*dto.TokenClaim, error) {
-	jwtSecret := []byte(cfg.SecretKey)
-	claim := &dto.TokenClaim{}
+func ClaimTokenRefresh(tokenString string, cfg *config.JwtConfig) (*dto.TokenClaim, error) {
 
-	token, err := jwt.ParseWithClaims(tokenUser, claim, func(t *jwt.Token) (any, error) {
-		return jwtSecret, nil
-	})
+	claims := &dto.TokenClaim{}
+
+	token, err := jwt.ParseWithClaims(tokenString, claims,
+		func(t *jwt.Token) (any, error) {
+			if t.Method != jwt.SigningMethodHS256 {
+				return nil, fmt.Errorf(
+					"unexpected signing method: %v",
+					t.Header["alg"],
+				)
+			}
+
+			return []byte(cfg.SecretKey), nil
+		},
+	)
 
 	if err != nil {
 		return nil, err
@@ -60,8 +84,11 @@ func ClaimTokenRefresh(tokenUser string, cfg *config.JwtConfig) (*dto.TokenClaim
 
 	if !token.Valid {
 		return nil, errors.New("invalid token")
-
 	}
 
-	return claim, nil
+	if claims.TokenType != "refresh" {
+		return nil, errors.New("token is not a refresh token")
+	}
+
+	return claims, nil
 }

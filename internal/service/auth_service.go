@@ -23,6 +23,7 @@ type AuthService interface {
 	Login(c context.Context, req *dto.LoginUserRequest) (*dto.TokenResponse, error)
 	Register(c context.Context, req *dto.RegisterUserRequest) error
 	Logout(c context.Context, userID uuid.UUID) error
+	Refresh(c context.Context, req *dto.ResfreshTokenRequest) (*dto.TokenResponse, error)
 }
 
 type authServiceImpl struct {
@@ -72,7 +73,7 @@ func (s *authServiceImpl) Login(c context.Context, req *dto.LoginUserRequest) (*
 		return nil, ErrInternalServer
 	}
 
-	refreshToken, _, err := token.GenerateRefreshToken(user.ID, s.Jwt)
+	refreshToken, err := token.GenerateRefreshToken(user.ID, s.Jwt)
 	if err != nil {
 		s.Log.WithError(err).Error("failed generate refresh token")
 		return nil, ErrInternalServer
@@ -84,17 +85,17 @@ func (s *authServiceImpl) Login(c context.Context, req *dto.LoginUserRequest) (*
 	timeNow := time.Now()
 
 	if err := s.Redis.Set(c, "jwt:"+user.ID.String(), accessToken, accessTTL).Err(); err != nil {
-		s.Log.Errorf("failed to save access token to redis: %v", err)
+		s.Log.WithError(err).Error("failed to save access token to redis")
 		return nil, ErrInternalServer
 	}
 	if err := s.Redis.Set(c, "refresh:"+user.ID.String(), refreshToken, refreshTTL).Err(); err != nil {
-		s.Log.Errorf("failed to save refresh token to redis: %v", err)
+		s.Log.WithError(err).Error("failed to save refresh token to redis")
 		return nil, ErrInternalServer
 	}
 
 	tokenCreated := dto.TokenResponse{
 		Token:        accessToken,
-		TokenRefresh: refreshToken,
+		RefreshToken: &refreshToken,
 		ExpiresIn:    timeNow.Add(accessTTL),
 		CreatedAt:    timeNow,
 	}
@@ -138,18 +139,7 @@ func (s *authServiceImpl) Logout(c context.Context, userID uuid.UUID) error {
 		return ErrValidationFailed
 	}
 
-	user, err := s.UserRepo.GetByID(s.Db.WithContext(c), userID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			s.Log.WithError(err).Error("logout: user not found")
-			return ErrRecordNotFound
-		}
-
-		s.Log.WithError(err).Error("logout: failed get user by id")
-		return ErrInternalServer
-	}
-
-	strID := user.ID.String()
+	strID := userID.String()
 
 	keyJwt := fmt.Sprintf("jwt:%s", strID)
 	keyRefresh := fmt.Sprintf("refresh:%s", strID)
@@ -165,4 +155,69 @@ func (s *authServiceImpl) Logout(c context.Context, userID uuid.UUID) error {
 	}
 
 	return nil
+}
+
+func (s *authServiceImpl) Refresh(c context.Context, req *dto.ResfreshTokenRequest) (*dto.TokenResponse, error) {
+	if err := s.Validate.Struct(req); err != nil {
+		s.Log.WithError(err).Error("Validation failed")
+		return nil, ErrValidationFailed
+	}
+
+	claimUser, err := token.ClaimTokenRefresh(req.TokenRefresh, s.Jwt)
+	if err != nil {
+		s.Log.WithError(err).Error("refresh: invalid refresh token")
+		return nil, ErrTokenInvalid
+	}
+
+	keyRefresh := fmt.Sprintf("refresh:%s", claimUser.UserID.String())
+	tokenRedis, err := s.Redis.Get(c, keyRefresh).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			s.Log.WithError(err).Error("refresh: invalid refresh token")
+            return nil, ErrCredentialInvalid
+        }
+		s.Log.WithError(err).Error("refresh: failed get refresh token from redis")
+		return nil, ErrInternalServer
+	}
+
+	//cekkk token 
+	if tokenRedis != req.TokenRefresh{
+		s.Log.Warnf("refresh: token refresh invalid")
+		return nil, ErrTokenInvalid
+	}
+
+	user, err := s.UserRepo.GetByID(s.Db.WithContext(c), claimUser.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.Log.WithError(err).Error("refresh: user not found")
+			return nil, ErrRecordNotFound
+		}
+
+		s.Log.WithError(err).Error("refresh: failed get user by id")
+		return nil, ErrInternalServer
+	}
+
+	//generate access token baru
+	newToken, err := token.GenerateToken(s.Jwt, user.ID, user.Email, string(user.Role), time.Duration(s.Jwt.ExpiredTime))
+	if err != nil {
+		s.Log.WithError(err).Error("refresh: failed generate token")
+		return nil, ErrInternalServer
+	}
+
+	accessTTL := time.Duration(s.Jwt.ExpiredTime) * time.Hour
+	keyAccess := fmt.Sprintf("jwt:%s", user.ID.String())
+	timeNow := time.Now()
+
+	if err := s.Redis.Set(c, keyAccess, newToken, accessTTL).Err(); err != nil {
+		s.Log.WithError(err).Error("failed to save access token to redis")
+		return nil, ErrInternalServer
+	}
+
+	return &dto.TokenResponse{
+		Token:        newToken,
+		RefreshToken: nil,
+		ExpiresIn:    timeNow.Add(accessTTL),
+		CreatedAt:    timeNow,
+	}, nil
+
 }

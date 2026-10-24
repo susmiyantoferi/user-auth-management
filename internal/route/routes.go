@@ -27,6 +27,7 @@ func NewRouter(users controller.UserController, authentication controller.AuthCo
 			//public route
 			auth.POST("/register", authentication.Register)
 			auth.POST("/login", authentication.Login)
+			auth.POST("/refresh", authentication.Refresh)
 
 			protected := auth.Group("")
 			protected.Use(middleware.Authentication(cfgJwt, rdsClient))
