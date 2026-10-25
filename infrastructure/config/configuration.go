@@ -6,6 +6,8 @@ type Configuration struct {
 	Redis    RedisConfig    `mapstructure:"redis"`
 	Logger   LoggerConfig   `mapstructure:"logger"`
 	Jwt      JwtConfig      `mapstructure:"jwt"`
+	Email    EmailConfig    `mapstructure:"email"`
+	Key      SecretKey      `mapstructure:"key"`
 }
 
 type AppConfig struct {
@@ -41,4 +43,16 @@ type JwtConfig struct {
 	SecretKey          string `mapstructure:"secretkey"`
 	ExpiredTime        int    `mapstructure:"expiredtime"`
 	RefreshExpiredTime int    `mapstructure:"refresh_expiredtime"`
+}
+
+type EmailConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+	From     string `mapstructure:"from"`
+}
+
+type SecretKey struct {
+	HmacSecret string `mapstructure:"hmac_secret"`
 }

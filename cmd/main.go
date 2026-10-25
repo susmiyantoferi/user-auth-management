@@ -26,7 +26,8 @@ func main() {
 	userRepo := repository.NewUserRepositoryImpl()
 
 	userService := service.NewUserServiceImpl(userRepo, db, validate, log, redis)
-	authService := service.NewAuthServiceImpl(userRepo, db, validate, log, &config.Jwt, redis)
+	emailService := service.NewEmailServiceImpl(&config.Email)
+	authService := service.NewAuthServiceImpl(userRepo, db, validate, log, &config.Jwt, redis, &config.Key, emailService)
 
 	userController := controller.NewUserControllerImpl(userService)
 	authController := controller.NewAuthControllerImpl(authService)

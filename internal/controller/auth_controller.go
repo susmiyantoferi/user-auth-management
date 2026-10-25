@@ -70,6 +70,8 @@ func (a *authControllerImpl) Register(c *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrValidationFailed):
 			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrEmailExist):
+			c.JSON(http.StatusConflict, response.ErrorResponse(err.Error()))
 
 		default:
 			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
@@ -77,7 +79,7 @@ func (a *authControllerImpl) Register(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, response.SuccessResponse(nil))
+	c.JSON(http.StatusCreated, response.SuccessResponse(nil, "success, check your email for verification code"))
 
 }
 
