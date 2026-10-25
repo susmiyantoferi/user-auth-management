@@ -52,6 +52,8 @@ var (
 	ErrTokenInvalid      = errors.New("Token invalid")
 	ErrOtpInvalid        = errors.New("Expired or invalid OTP")
 	ErrToManyReq         = errors.New("To many request")
+	ErrUserIsVerified    = errors.New("User is verified")
+	ErrOtpCooldown       = errors.New("Please wait a few more minutes")
 )
 
 func (s *userServiceImpl) Update(c context.Context, req *dto.UpdateUserRequest) error {

@@ -31,6 +31,7 @@ type AuthService interface {
 	Logout(c context.Context, userID uuid.UUID) error
 	Refresh(c context.Context, req *dto.ResfreshTokenRequest) (*dto.TokenResponse, error)
 	VerifyOTP(c context.Context, req *dto.VerifyOTPReq) error
+	ResendOTP(c context.Context, req *dto.ResendOTPReq) error
 }
 
 type authServiceImpl struct {
@@ -60,6 +61,7 @@ func NewAuthServiceImpl(userRepo repository.UserRepository, db *gorm.DB, validat
 const (
 	OtpExpiretion = 5 * time.Minute
 	maxAttemp     = 5
+	OtpCooldown   = 60 * time.Second
 )
 
 func (s *authServiceImpl) Login(c context.Context, req *dto.LoginUserRequest) (*dto.TokenResponse, error) {
@@ -353,4 +355,72 @@ func (s *authServiceImpl) VerifyOTP(c context.Context, req *dto.VerifyOTPReq) er
 
 	return nil
 
+}
+
+func (s *authServiceImpl) ResendOTP(c context.Context, req *dto.ResendOTPReq) error {
+	if err := s.Validate.Struct(req); err != nil {
+		s.Log.WithError(err).Error("Validation failed")
+		return ErrValidationFailed
+	}
+
+	email := strings.ToLower(req.Email)
+
+	user, err := s.UserRepo.FindByEmail(s.Db.WithContext(c), email)
+	if err != nil {
+		s.Log.WithError(err).Error("resend otp: failed get user")
+		return ErrInternalServer
+	}
+
+	//validate status if verify
+	if user.StatusVerification == entity.Verified {
+		return ErrUserIsVerified
+	}
+
+	cooldownKey := fmt.Sprintf("otp:resend:%s", user.Email)
+
+	exists, err := s.Redis.Exists(c, cooldownKey).Result()
+	if err != nil {
+		s.Log.WithError(err).Error("resend otp: failed check cooldown")
+		return ErrInternalServer
+	}
+
+	if exists > 0 {
+		return ErrOtpCooldown
+	}
+
+	newOtp, err := otp.GenerateOTP()
+	if err != nil {
+		s.Log.WithError(err).Error("resend otp: failed generate otp")
+		return ErrInternalServer
+	}
+
+	otpHash := hashing.StrToHash(newOtp, s.Key.HmacSecret)
+
+	otpKey := fmt.Sprintf("otp:email:%s", user.Email)
+
+	//set new otp
+	if err := s.Redis.Set(c, otpKey, hex.EncodeToString(otpHash), OtpExpiretion).Err(); err != nil {
+		s.Log.WithError(err).Error("resend otp: failed save otp redis")
+		return ErrInternalServer
+	}
+
+	//set cooldown for resend otp
+	acquired, err := s.Redis.SetNX(c, cooldownKey, "1", OtpCooldown).Result()
+	if err != nil {
+		s.Log.WithError(err).Error("resend otp: failed set cooldown redis")
+		return ErrInternalServer
+	}
+
+	if !acquired {
+		s.Log.Warn("resend otp: cooldown key already exists")
+		return ErrOtpCooldown
+	}
+
+	//send new otp to email
+	if err := s.EmailService.SendEmail(c, user.Email, newOtp); err != nil {
+		s.Log.WithError(err).Error("resend otp: failed send email")
+		return ErrInternalServer
+	}
+
+	return nil
 }

@@ -16,3 +16,7 @@ type VerifyOTPReq struct {
 	Email string `json:"email" validate:"required,email"`
 	OTP string `json:"otp" validate:"required,max=6"`
 }
+
+type ResendOTPReq struct {
+	Email string `json:"email" validate:"required,email"`
+}
