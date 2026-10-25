@@ -15,6 +15,7 @@ type AuthController interface {
 	Register(c *gin.Context)
 	Logout(c *gin.Context)
 	Refresh(c *gin.Context)
+	Verify(c *gin.Context)
 }
 
 type authControllerImpl struct {
@@ -131,4 +132,29 @@ func (a *authControllerImpl) Refresh(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response.SuccessResponse(resp))
+}
+
+func (a *authControllerImpl) Verify(c *gin.Context) {
+	var body dto.VerifyOTPReq
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid request body"))
+		return
+	}
+
+	if err := a.AuthService.VerifyOTP(c.Request.Context(), &body); err != nil {
+		switch {
+		case errors.Is(err, service.ErrOtpInvalid):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrValidationFailed):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrToManyReq):
+			c.JSON(http.StatusTooManyRequests, response.ErrorResponse(err.Error()))
+		default:
+			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response.SuccessResponse(nil))
+
 }

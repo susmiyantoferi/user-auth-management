@@ -50,6 +50,8 @@ var (
 	ErrEmailExist        = errors.New("Email already exits")
 	ErrUnauthorized      = errors.New("Unauthorized")
 	ErrTokenInvalid      = errors.New("Token invalid")
+	ErrOtpInvalid        = errors.New("Expired or invalid OTP")
+	ErrToManyReq         = errors.New("To many request")
 )
 
 func (s *userServiceImpl) Update(c context.Context, req *dto.UpdateUserRequest) error {

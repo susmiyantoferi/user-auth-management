@@ -11,3 +11,8 @@ type RegisterUserRequest struct {
 	Password string `json:"password" validate:"required,min=8"`
 	Address  string `json:"address" validate:"required"`
 }
+
+type VerifyOTPReq struct {
+	Email string `json:"email" validate:"required,email"`
+	OTP string `json:"otp" validate:"required,max=6"`
+}

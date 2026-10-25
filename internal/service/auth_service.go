@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type AuthService interface {
@@ -28,6 +30,7 @@ type AuthService interface {
 	Register(c context.Context, req *dto.RegisterUserRequest) error
 	Logout(c context.Context, userID uuid.UUID) error
 	Refresh(c context.Context, req *dto.ResfreshTokenRequest) (*dto.TokenResponse, error)
+	VerifyOTP(c context.Context, req *dto.VerifyOTPReq) error
 }
 
 type authServiceImpl struct {
@@ -53,6 +56,11 @@ func NewAuthServiceImpl(userRepo repository.UserRepository, db *gorm.DB, validat
 		EmailService: emailService,
 	}
 }
+
+const (
+	OtpExpiretion = 5 * time.Minute
+	maxAttemp     = 5
+)
 
 func (s *authServiceImpl) Login(c context.Context, req *dto.LoginUserRequest) (*dto.TokenResponse, error) {
 
@@ -161,10 +169,9 @@ func (s *authServiceImpl) Register(c context.Context, req *dto.RegisterUserReque
 
 	//set key redis
 	keyRdsOtp := fmt.Sprintf("otp:email:%s", email)
-	ttl := 5 * time.Minute
 
 	//save to redis
-	if err := s.Redis.Set(c, keyRdsOtp, hex.EncodeToString(otpHash), ttl).Err(); err != nil {
+	if err := s.Redis.Set(c, keyRdsOtp, hex.EncodeToString(otpHash), OtpExpiretion).Err(); err != nil {
 		s.Log.WithError(err).Error("register: failed save otp redis")
 		return ErrInternalServer
 	}
@@ -264,5 +271,86 @@ func (s *authServiceImpl) Refresh(c context.Context, req *dto.ResfreshTokenReque
 		ExpiresIn:    timeNow.Add(accessTTL),
 		CreatedAt:    timeNow,
 	}, nil
+
+}
+
+func (s *authServiceImpl) VerifyOTP(c context.Context, req *dto.VerifyOTPReq) error {
+	if err := s.Validate.Struct(req); err != nil {
+		s.Log.WithError(err).Error("Validation failed")
+		return ErrValidationFailed
+	}
+
+	email := strings.ToLower(req.Email)
+	keyOtp := fmt.Sprintf("otp:email:%s", email)
+	attempKey := fmt.Sprintf("otp:attemp:email:%s", email)
+
+	otpHasHex, err := s.Redis.Get(c, keyOtp).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			s.Log.WithError(err).Error("otp not found in redis")
+			return ErrOtpInvalid
+		}
+		s.Log.WithError(err).Error("verify: failed get otp redis")
+		return ErrInternalServer
+	}
+
+	//sett rate to hit verify otp
+	attemp, err := s.Redis.Incr(c, attempKey).Result()
+	if err != nil {
+		return ErrInternalServer
+	}
+
+	if attemp == 1 {
+		if err := s.Redis.Expire(c, attempKey, OtpExpiretion).Err(); err != nil {
+			return ErrInternalServer
+		}
+	}
+
+	if attemp > maxAttemp {
+		return ErrToManyReq
+	}
+
+	inputOtp := hashing.StrToHash(req.OTP, s.Key.HmacSecret)
+
+	storeOtpHas, err := hex.DecodeString(otpHasHex)
+	if err != nil {
+		return ErrInternalServer
+	}
+
+	//compare apakah sama
+	if !hmac.Equal(inputOtp, storeOtpHas) {
+		return ErrOtpInvalid
+	}
+
+	//get user & update
+	if err := s.Db.WithContext(c).Transaction(func(tx *gorm.DB) error {
+		var user entity.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("email = ?", email).Take(&user).Error; err != nil {
+			s.Log.WithError(err).Error("verify: failed get user by email")
+			return err
+		}
+
+		updateUser := entity.User{
+			IsActive:           true,
+			StatusVerification: entity.Verified,
+		}
+
+		if err := tx.Model(&user).Updates(updateUser).Error; err != nil {
+			s.Log.WithError(err).Error("verify: failed update user status")
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := s.Redis.Del(c, keyOtp).Err(); err != nil {
+		s.Log.WithError(err).Error("verify: failed delete otp redis")
+		return ErrInternalServer
+	}
+
+	return nil
 
 }
