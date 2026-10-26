@@ -66,7 +66,7 @@ func (e *emailServiceImpl) SendOTP(c context.Context, toEmail, otp string) error
 }
 
 func (e *emailServiceImpl) SendPasswordReset(c context.Context, toEmail, token string) error {
-	resetURL := fmt.Sprintf("%s/reset-password?token=%s", e.AppUrl.FrontendUrl, url.QueryEscape(token))
+	resetURL := fmt.Sprintf("%s/api/v1/auth/reset-password?token=%s", e.AppUrl.FrontendUrl, url.QueryEscape(token))
 
 	subject := "Reset Your Password"
 

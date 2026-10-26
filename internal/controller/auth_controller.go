@@ -18,6 +18,7 @@ type AuthController interface {
 	Verify(c *gin.Context)
 	Resend(c *gin.Context)
 	ForgotPassword(c *gin.Context)
+	ResetPassword(c *gin.Context)
 }
 
 type authControllerImpl struct {
@@ -206,5 +207,28 @@ func (a authControllerImpl) ForgotPassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response.SuccessResponse(nil, "password reset link has been sent"))
+
+}
+
+func(a *authControllerImpl) ResetPassword(c *gin.Context){
+	var body dto.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid request body"))
+		return
+	}
+
+	if err := a.AuthService.ResetPassword(c.Request.Context(), &body); err != nil{
+		switch {
+		case errors.Is(err, service.ErrValidationFailed):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrTokenInvalid):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		default:
+			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response.SuccessResponse(nil, "success reset password"))
 
 }

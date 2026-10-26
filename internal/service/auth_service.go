@@ -33,6 +33,7 @@ type AuthService interface {
 	VerifyOTP(c context.Context, req *dto.VerifyOTPReq) error
 	ResendOTP(c context.Context, req *dto.ResendOTPReq) error
 	ForgotPassword(c context.Context, req *dto.ForgotPasswordReq) error
+	ResetPassword(c context.Context, req *dto.ResetPasswordRequest) error
 }
 
 type authServiceImpl struct {
@@ -435,7 +436,7 @@ func (s *authServiceImpl) ForgotPassword(c context.Context, req *dto.ForgotPassw
 
 	user, err := s.UserRepo.FindByEmail(s.Db.WithContext(c), email)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound){
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			s.Log.WithError(err).Error("forgot password: user not found")
 			return nil
 		}
@@ -474,6 +475,74 @@ func (s *authServiceImpl) ForgotPassword(c context.Context, req *dto.ForgotPassw
 	//send email reset pw
 	if err := s.EmailService.SendPasswordReset(c, user.Email, token); err != nil {
 		s.Log.WithError(err).Error("forgot password: failed send reset email")
+		return ErrInternalServer
+	}
+
+	return nil
+
+}
+
+func (s *authServiceImpl) ResetPassword(c context.Context, req *dto.ResetPasswordRequest) error {
+	if err := s.Validate.Struct(req); err != nil {
+		s.Log.WithError(err).Error("Validation failed")
+		return ErrValidationFailed
+	}
+
+	tokenHash := hashing.HashResetToken(req.Token)
+
+	resetKey := fmt.Sprintf("reset-password:%s", tokenHash)
+	id, err := s.Redis.Get(c, resetKey).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			s.Log.WithError(err).Error("reset password: token not found in redis")
+			return ErrTokenInvalid
+		}
+		s.Log.WithError(err).Error("reset password: failed get token redis")
+		return ErrInternalServer
+	}
+
+	if err := s.Db.WithContext(c).Transaction(func(tx *gorm.DB) error {
+		var user entity.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				s.Log.WithError(err).Error("reset password: not found user")
+				return err
+			}
+			s.Log.WithError(err).Error("reset password: failed get user by id")
+			return err
+		}
+
+		pass, err := encrypt.BcryptText(req.Password)
+		if err != nil {
+			s.Log.WithError(err).Error("reset password: failed bcrypt password")
+			return ErrInternalServer
+		}
+
+		u := entity.User{
+			Password: pass,
+		}
+
+		if err := tx.Model(&user).Updates(u).Error; err != nil {
+			s.Log.WithError(err).Error("reset password: failed update password")
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return ErrInternalServer
+	}
+
+	//del token reset pw
+	if err := s.Redis.Del(c, resetKey).Err(); err != nil {
+		s.Log.WithError(err).Error("reset password: failed delete resetKey redis")
+		return ErrInternalServer
+	}
+
+	//del cred login
+	accessKey := fmt.Sprintf("jwt:%s", id)
+	refreshKey := fmt.Sprintf("refresh:%s", id)
+	if err := s.Redis.Del(c, accessKey, refreshKey).Err(); err != nil {
+		s.Log.WithError(err).Error("reset password: failed delete accessKey or refreshKey redis")
 		return ErrInternalServer
 	}
 

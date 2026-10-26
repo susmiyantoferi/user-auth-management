@@ -33,6 +33,7 @@ func NewRouter(users controller.UserController, authentication controller.AuthCo
 			auth.POST("/resend-otp", authentication.Resend)
 
 			auth.POST("/forgot-password", authentication.ForgotPassword)
+			auth.POST("/reset-password", authentication.ResetPassword)
 
 			protected := auth.Group("")
 			protected.Use(middleware.Authentication(cfgJwt, rdsClient))

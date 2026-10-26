@@ -49,7 +49,7 @@ var (
 	ErrInternalServer    = errors.New("Internal server error")
 	ErrEmailExist        = errors.New("Email already exits")
 	ErrUnauthorized      = errors.New("Unauthorized")
-	ErrTokenInvalid      = errors.New("Token invalid")
+	ErrTokenInvalid      = errors.New("Token invalid or expired")
 	ErrOtpInvalid        = errors.New("Expired or invalid OTP")
 	ErrToManyReq         = errors.New("To many request")
 	ErrUserIsVerified    = errors.New("User is verified")

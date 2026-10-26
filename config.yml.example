@@ -1,6 +1,7 @@
 app:
   port: ":8080"
   environment: "development"
+  frontend_url: "http://127.0.0.1:8080"
 
 postgres:
   host: "127.0.0.1"
@@ -22,3 +23,18 @@ redis:
 logger:
   level: 6
   path: "./logs/"
+
+jwt:
+  secretkey: "83783kjfnksdnfksnf8234jhbf239459891244dws660"
+  expiredtime: 24
+  refresh_expiredtime: 168
+
+email:
+  host: "smtp.gmail.com"
+  port: 587
+  username: "exampleapp@gmail.com"
+  password: "abc"
+  fromname: "AUTHENTICATION SYSTEM"
+
+key: 
+  hmac_secret: "ksvbkweuf6923ksdjvn0011665"
