@@ -19,6 +19,7 @@ type AuthController interface {
 	Resend(c *gin.Context)
 	ForgotPassword(c *gin.Context)
 	ResetPassword(c *gin.Context)
+	ChangePassword(c *gin.Context)
 }
 
 type authControllerImpl struct {
@@ -230,5 +231,38 @@ func(a *authControllerImpl) ResetPassword(c *gin.Context){
 	}
 
 	c.JSON(http.StatusOK, response.SuccessResponse(nil, "success reset password"))
+
+}
+
+func(a *authControllerImpl) ChangePassword(c *gin.Context){
+	var body dto.ChangePasswordRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid request body"))
+		return
+	}
+
+	claim, ok := c.Get("user")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, response.ErrorResponse("unauthorized"))
+		return
+	}
+
+	user := claim.(*dto.TokenClaim)
+
+	if err := a.AuthService.ChangePassword(c.Request.Context(), user.UserID, &body); err != nil {
+		switch {
+		case errors.Is(err, service.ErrValidationFailed):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrPasswordSame):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrCredentialInvalid):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		default:
+			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response.SuccessResponse(nil, "success change password"))
 
 }

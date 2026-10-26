@@ -54,7 +54,8 @@ var (
 	ErrToManyReq         = errors.New("To many request")
 	ErrUserIsVerified    = errors.New("User is verified")
 	ErrCooldown          = errors.New("Please wait a few more minutes")
-	ErrPassBeenSend      = errors.New("password reset link has been sent")
+	ErrPassBeenSend      = errors.New("Password reset link has been sent")
+	ErrPasswordSame      = errors.New("New password must be different from current password")
 )
 
 func (s *userServiceImpl) Update(c context.Context, req *dto.UpdateUserRequest) error {

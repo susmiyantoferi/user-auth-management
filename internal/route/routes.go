@@ -39,6 +39,7 @@ func NewRouter(users controller.UserController, authentication controller.AuthCo
 			protected.Use(middleware.Authentication(cfgJwt, rdsClient))
 			{
 				protected.POST("/logout", authentication.Logout)
+				protected.POST("/change-password", authentication.ChangePassword)
 			}
 		}
 

@@ -34,6 +34,7 @@ type AuthService interface {
 	ResendOTP(c context.Context, req *dto.ResendOTPReq) error
 	ForgotPassword(c context.Context, req *dto.ForgotPasswordReq) error
 	ResetPassword(c context.Context, req *dto.ResetPasswordRequest) error
+	ChangePassword(c context.Context, userID uuid.UUID, req *dto.ChangePasswordRequest) error
 }
 
 type authServiceImpl struct {
@@ -548,4 +549,61 @@ func (s *authServiceImpl) ResetPassword(c context.Context, req *dto.ResetPasswor
 
 	return nil
 
+}
+
+func (s *authServiceImpl) ChangePassword(c context.Context, userID uuid.UUID, req *dto.ChangePasswordRequest) error {
+	if err := s.Validate.Struct(req); err != nil {
+		s.Log.WithError(err).Error("Validation failed")
+		return ErrValidationFailed
+	}
+
+	if req.CurrentPassword == req.NewPassword{
+		return ErrPasswordSame
+	}
+
+	if err := s.Db.WithContext(c).Transaction(func(tx *gorm.DB) error {
+		var user entity.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				s.Log.WithError(err).Error("change password: not found user")
+				return err
+			}
+			s.Log.WithError(err).Error("change password: failed get user by id")
+			return err
+		}
+
+		if !encrypt.CompareBcryptText(user.Password, req.CurrentPassword) {
+			s.Log.Warnf("change password: compare password false")
+			return ErrCredentialInvalid
+		}
+
+		pass, err := encrypt.BcryptText(req.NewPassword)
+		if err != nil {
+			s.Log.WithError(err).Error("change password: failed encrypt password")
+			return ErrInternalServer
+		}
+
+		u := entity.User{
+			Password: pass,
+		}
+
+		if err := tx.Model(&user).Updates(u).Error; err != nil {
+			s.Log.WithError(err).Error("change password: failed update password")
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return ErrInternalServer
+	}
+
+	//del cred login
+	accessKey := fmt.Sprintf("jwt:%s", userID.String())
+	refreshKey := fmt.Sprintf("refresh:%s", userID.String())
+	if err := s.Redis.Del(c, accessKey, refreshKey).Err(); err != nil {
+		s.Log.WithError(err).Error("change password: failed delete accessKey or refreshKey redis")
+		return ErrInternalServer
+	}
+
+	return nil
 }
