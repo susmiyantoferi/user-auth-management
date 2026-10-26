@@ -35,3 +35,11 @@
   ```
 
 - URL Documentation API : https://documenter.getpostman.com/view/50367071/2sBYHUULSz
+
+NOTE : 
+- pada saat user melakukan nonactive akun semua credensial token akan invalid
+- pada saat user melakukan request forgot password setiap 1 menit hanya dapat melakukan request 1 kali
+- pada saat verify otp max hit 5 kali dan setiap 1 menit hanya dapat sekali hit
+- jika waktu register tidak menerima email otp bisa melakukan resend email otp
+- resend otp dalam 1 menit hanya bisa dilakukan 1 kali
+- semua credensial di save di redis dengan time to live masing masing
