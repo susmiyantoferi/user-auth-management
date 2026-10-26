@@ -13,6 +13,7 @@ type Configuration struct {
 type AppConfig struct {
 	Port        string `mapstructure:"port"`
 	Environment string `mapstructure:"environment"`
+	FrontendUrl string `mapstructure:"frontend_url"`
 }
 
 type PostgresConfig struct {

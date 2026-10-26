@@ -32,6 +32,7 @@ type AuthService interface {
 	Refresh(c context.Context, req *dto.ResfreshTokenRequest) (*dto.TokenResponse, error)
 	VerifyOTP(c context.Context, req *dto.VerifyOTPReq) error
 	ResendOTP(c context.Context, req *dto.ResendOTPReq) error
+	ForgotPassword(c context.Context, req *dto.ForgotPasswordReq) error
 }
 
 type authServiceImpl struct {
@@ -59,9 +60,10 @@ func NewAuthServiceImpl(userRepo repository.UserRepository, db *gorm.DB, validat
 }
 
 const (
-	OtpExpiretion = 5 * time.Minute
-	maxAttemp     = 5
-	OtpCooldown   = 60 * time.Second
+	OtpExpiretion     = 5 * time.Minute
+	maxAttemp         = 5
+	TimeCooldown      = 60 * time.Second
+	PwResetExpiretion = 10 * time.Minute
 )
 
 func (s *authServiceImpl) Login(c context.Context, req *dto.LoginUserRequest) (*dto.TokenResponse, error) {
@@ -128,6 +130,7 @@ func (s *authServiceImpl) Register(c context.Context, req *dto.RegisterUserReque
 		return ErrValidationFailed
 	}
 
+	email := strings.ToLower(req.Email)
 	pass, err := encrypt.BcryptText(req.Password)
 	if err != nil {
 		s.Log.WithError(err).Error("failed to bcrypt password")
@@ -137,7 +140,7 @@ func (s *authServiceImpl) Register(c context.Context, req *dto.RegisterUserReque
 	if err := s.Db.WithContext(c).Transaction(func(tx *gorm.DB) error {
 		user := entity.User{
 			Name:               req.Name,
-			Email:              req.Email,
+			Email:              email,
 			Password:           pass,
 			Address:            req.Address,
 			Role:               entity.RoleUser,
@@ -164,10 +167,7 @@ func (s *authServiceImpl) Register(c context.Context, req *dto.RegisterUserReque
 		return ErrInternalServer
 	}
 
-	otpHash := hashing.StrToHash(otp, s.Key.HmacSecret)
-
-	//set email to lower case
-	email := strings.ToLower(req.Email)
+	otpHash := hashing.OtpToHash(otp, s.Key.HmacSecret)
 
 	//set key redis
 	keyRdsOtp := fmt.Sprintf("otp:email:%s", email)
@@ -179,7 +179,7 @@ func (s *authServiceImpl) Register(c context.Context, req *dto.RegisterUserReque
 	}
 
 	//send email for otp
-	if err := s.EmailService.SendEmail(c, email, otp); err != nil {
+	if err := s.EmailService.SendOTP(c, email, otp); err != nil {
 		s.Log.WithError(err).Error("register: failed send email")
 		return ErrInternalServer
 	}
@@ -312,7 +312,7 @@ func (s *authServiceImpl) VerifyOTP(c context.Context, req *dto.VerifyOTPReq) er
 		return ErrToManyReq
 	}
 
-	inputOtp := hashing.StrToHash(req.OTP, s.Key.HmacSecret)
+	inputOtp := hashing.OtpToHash(req.OTP, s.Key.HmacSecret)
 
 	storeOtpHas, err := hex.DecodeString(otpHasHex)
 	if err != nil {
@@ -385,7 +385,7 @@ func (s *authServiceImpl) ResendOTP(c context.Context, req *dto.ResendOTPReq) er
 	}
 
 	if exists > 0 {
-		return ErrOtpCooldown
+		return ErrCooldown
 	}
 
 	newOtp, err := otp.GenerateOTP()
@@ -394,7 +394,7 @@ func (s *authServiceImpl) ResendOTP(c context.Context, req *dto.ResendOTPReq) er
 		return ErrInternalServer
 	}
 
-	otpHash := hashing.StrToHash(newOtp, s.Key.HmacSecret)
+	otpHash := hashing.OtpToHash(newOtp, s.Key.HmacSecret)
 
 	otpKey := fmt.Sprintf("otp:email:%s", user.Email)
 
@@ -405,7 +405,7 @@ func (s *authServiceImpl) ResendOTP(c context.Context, req *dto.ResendOTPReq) er
 	}
 
 	//set cooldown for resend otp
-	acquired, err := s.Redis.SetNX(c, cooldownKey, "1", OtpCooldown).Result()
+	acquired, err := s.Redis.SetNX(c, cooldownKey, "1", TimeCooldown).Result()
 	if err != nil {
 		s.Log.WithError(err).Error("resend otp: failed set cooldown redis")
 		return ErrInternalServer
@@ -413,14 +413,70 @@ func (s *authServiceImpl) ResendOTP(c context.Context, req *dto.ResendOTPReq) er
 
 	if !acquired {
 		s.Log.Warn("resend otp: cooldown key already exists")
-		return ErrOtpCooldown
+		return ErrCooldown
 	}
 
 	//send new otp to email
-	if err := s.EmailService.SendEmail(c, user.Email, newOtp); err != nil {
+	if err := s.EmailService.SendOTP(c, user.Email, newOtp); err != nil {
 		s.Log.WithError(err).Error("resend otp: failed send email")
 		return ErrInternalServer
 	}
 
 	return nil
+}
+
+func (s *authServiceImpl) ForgotPassword(c context.Context, req *dto.ForgotPasswordReq) error {
+	if err := s.Validate.Struct(req); err != nil {
+		s.Log.WithError(err).Error("Validation failed")
+		return ErrValidationFailed
+	}
+
+	email := strings.ToLower(req.Email)
+
+	user, err := s.UserRepo.FindByEmail(s.Db.WithContext(c), email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound){
+			s.Log.WithError(err).Error("forgot password: user not found")
+			return nil
+		}
+		s.Log.WithError(err).Error("forgot password: failed get user by email")
+		return ErrInternalServer
+	}
+
+	//set cooldown
+	cooldownKey := fmt.Sprintf("reset-password:cooldown:%s", user.Email)
+	acquired, err := s.Redis.SetNX(c, cooldownKey, "1", TimeCooldown).Result()
+	if err != nil {
+		s.Log.WithError(err).Error("forgot password: failed set cooldown")
+		return ErrInternalServer
+	}
+
+	if !acquired {
+		s.Log.Warn("forgot password: cooldown key already exists")
+		return ErrCooldown
+	}
+
+	token, err := token.GenerateResetToken()
+	if err != nil {
+		s.Log.WithError(err).Error("forgot password: failed generate token")
+		return ErrInternalServer
+	}
+
+	tokenHash := hashing.HashResetToken(token)
+
+	//set tokwn to redis
+	resetPwKey := fmt.Sprintf("reset-password:%s", tokenHash)
+	if err := s.Redis.Set(c, resetPwKey, user.ID.String(), PwResetExpiretion).Err(); err != nil {
+		s.Log.WithError(err).Error("forgot password: failed save reset token redis")
+		return ErrInternalServer
+	}
+
+	//send email reset pw
+	if err := s.EmailService.SendPasswordReset(c, user.Email, token); err != nil {
+		s.Log.WithError(err).Error("forgot password: failed send reset email")
+		return ErrInternalServer
+	}
+
+	return nil
+
 }

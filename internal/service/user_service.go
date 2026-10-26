@@ -53,7 +53,8 @@ var (
 	ErrOtpInvalid        = errors.New("Expired or invalid OTP")
 	ErrToManyReq         = errors.New("To many request")
 	ErrUserIsVerified    = errors.New("User is verified")
-	ErrOtpCooldown       = errors.New("Please wait a few more minutes")
+	ErrCooldown          = errors.New("Please wait a few more minutes")
+	ErrPassBeenSend      = errors.New("password reset link has been sent")
 )
 
 func (s *userServiceImpl) Update(c context.Context, req *dto.UpdateUserRequest) error {

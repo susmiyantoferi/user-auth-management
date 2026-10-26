@@ -28,8 +28,11 @@ func NewRouter(users controller.UserController, authentication controller.AuthCo
 			auth.POST("/register", authentication.Register)
 			auth.POST("/login", authentication.Login)
 			auth.POST("/refresh", authentication.Refresh)
+
 			auth.POST("/verify-otp", authentication.Verify)
 			auth.POST("/resend-otp", authentication.Resend)
+
+			auth.POST("/forgot-password", authentication.ForgotPassword)
 
 			protected := auth.Group("")
 			protected.Use(middleware.Authentication(cfgJwt, rdsClient))

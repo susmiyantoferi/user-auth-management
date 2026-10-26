@@ -17,6 +17,7 @@ type AuthController interface {
 	Refresh(c *gin.Context)
 	Verify(c *gin.Context)
 	Resend(c *gin.Context)
+	ForgotPassword(c *gin.Context)
 }
 
 type authControllerImpl struct {
@@ -160,20 +161,20 @@ func (a *authControllerImpl) Verify(c *gin.Context) {
 
 }
 
-func(a *authControllerImpl) Resend(c *gin.Context){
+func (a *authControllerImpl) Resend(c *gin.Context) {
 	var body dto.ResendOTPReq
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid request body"))
 		return
 	}
 
-	if err := a.AuthService.ResendOTP(c.Request.Context(), &body); err != nil{
+	if err := a.AuthService.ResendOTP(c.Request.Context(), &body); err != nil {
 		switch {
 		case errors.Is(err, service.ErrUserIsVerified):
 			c.JSON(http.StatusForbidden, response.ErrorResponse(err.Error()))
 		case errors.Is(err, service.ErrValidationFailed):
 			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
-		case errors.Is(err, service.ErrOtpCooldown):
+		case errors.Is(err, service.ErrCooldown):
 			c.JSON(http.StatusTooManyRequests, response.ErrorResponse(err.Error()))
 		default:
 			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
@@ -182,5 +183,28 @@ func(a *authControllerImpl) Resend(c *gin.Context){
 	}
 
 	c.JSON(http.StatusOK, response.SuccessResponse(nil, "success, check your email for verification code"))
+
+}
+
+func (a authControllerImpl) ForgotPassword(c *gin.Context) {
+	var body dto.ForgotPasswordReq
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, response.ErrorResponse("invalid request body"))
+		return
+	}
+
+	if err := a.AuthService.ForgotPassword(c.Request.Context(), &body); err != nil {
+		switch {
+		case errors.Is(err, service.ErrValidationFailed):
+			c.JSON(http.StatusBadRequest, response.ErrorResponse(err.Error()))
+		case errors.Is(err, service.ErrCooldown):
+			c.JSON(http.StatusTooManyRequests, response.ErrorResponse(err.Error()))
+		default:
+			c.JSON(http.StatusInternalServerError, response.ErrorResponse(err.Error()))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response.SuccessResponse(nil, "password reset link has been sent"))
 
 }
